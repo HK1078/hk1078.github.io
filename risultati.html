@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Risultati – Usciamo?</title>
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script><script src="common.js"></script>
+</head>
+<body>
+<main>
+<header><h1>📊 Risultati</h1><button id="theme" aria-label="Cambia tema">🌓</button></header>
+<div class="card"><h2 id="t">Caricamento…</h2><p class="mut" id="sub"></p></div>
+<div class="card" id="best" hidden></div>
+<div class="card" id="mapc" hidden>
+  <h2>Mappa delle disponibilità</h2>
+  <p class="mut">Più il verde è intenso, più persone sono libere. Il bordo giallo indica lo slot migliore.</p>
+  <div class="grid" id="map"></div>
+</div>
+<div class="card" id="listc" hidden><h2>Chi ha risposto</h2><div id="who"></div></div>
+<p class="mut" style="text-align:center"><a href="index.html" style="color:var(--acc)">Organizza un nuovo evento</a> · si aggiorna da solo ogni 20 secondi</p>
+</main>
+<div id="toast"></div>
+
+<script>
+const id=param("e");
+async function load(){
+  if(!id){$("#t").textContent="Nessun evento selezionato";return}
+  let ev,rs;
+  try{
+    ev=(await api("events?id=eq."+encodeURIComponent(id)+"&select=*"))[0];
+    rs=await api("responses?event_id=eq."+encodeURIComponent(id)+"&select=name,mask&order=created_at");
+  }catch(e){$("#t").textContent="Errore di connessione al database";return}
+  if(!ev){$("#t").textContent="Evento non trovato 😕";return}
+  $("#t").textContent=ev.title;$("#sub").textContent=ev.note||"";
+
+  // Conteggio preferenze per ogni slot (solo slot liberi dell'organizzatore)
+  const w=fromIso(ev.week),free=fromHex(ev.mask),cnt=Array(N).fill(0),who=Array.from({length:N},()=>[]);
+  rs.forEach(r=>fromHex(r.mask).forEach((v,i)=>{if(v&&free[i]){cnt[i]++;who[i].push(r.name)}}));
+  const max=Math.max(0,...cnt),td=iso(new Date());
+
+  // Mappa di calore
+  let h="<div></div>";
+  for(let d=0;d<7;d++){const x=slotStart(w,d,0);h+=`<div class="dh${iso(x)===td?" today":""}">${GG[d]}<b>${x.getDate()}</b></div>`}
+  for(let r=0;r<NH;r++){h+=`<div class="hl">${H0+r}</div>`;
+    for(let d=0;d<7;d++){const i=d*NH+r,n=cnt[i];
+      h+=!free[i]||isPast(w,d,r)?'<div class="c past"></div>'
+        :`<div class="c hm${n&&n===max?" top":""}" style="--a:${n?.25+.75*n/max:0}">${n||""}</div>`}}
+  $("#map").innerHTML=h;$("#mapc").hidden=false;
+
+  // Slot migliori
+  const order=cnt.map((n,i)=>[n,i]).filter(x=>x[0]>0).sort((a,b)=>b[0]-a[0]||a[1]-b[1]).slice(0,6);
+  const tot=rs.length;
+  if(order.length){
+    $("#best").innerHTML=order.map(([n,i])=>{const top=n===max;
+      return `<div class="${top?"best":"item"}">${top?"⭐ <b>Il migliore:</b> ":""}<b>${dayLab(w,Math.floor(i/NH))}</b>, ${lab(i%NH)} – ${n}/${tot}<br><span class="mut">${who[i].map(esc).join(", ")}</span></div>`}).join("");
+    $("#best").hidden=false;
+  }else $("#best").hidden=true;
+
+  // Elenco rispondenti
+  $("#who").innerHTML=tot?`<p class="mut">${tot} ${tot===1?"risposta":"risposte"}: ${rs.map(r=>esc(r.name)).join(", ")}</p>`:'<p class="mut">Ancora nessuna risposta.</p>';
+  $("#listc").hidden=false;
+}
+load();setInterval(load,20000);
+</script>
+</body>
+</html>
