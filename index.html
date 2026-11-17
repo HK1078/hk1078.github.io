@@ -9,7 +9,7 @@
 </head>
 <body>
 <main>
-<header><h1>🍻 Usciamo?</h1><button id="theme" aria-label="Cambia tema">🌓</button></header>
+<header><h1>Usciamo?</h1><button id="theme" aria-label="Cambia tema">🌓</button></header>
 
 <!-- ===== VISTA ORGANIZZATORE ===== -->
 <section id="org">
@@ -42,17 +42,29 @@
   </div>
 </section>
 
-<!-- ===== VISTA INVITATO (index.html?e=ID) ===== -->
+<!-- ===== VISTA INVITATO (index.html?e=ID): 3 passaggi ===== -->
 <section id="guest" hidden>
-  <div class="card"><h2 id="gt"></h2><p class="mut" id="gn"></p>
-    <label for="gname">Il tuo nome</label><input id="gname" placeholder="Come ti chiami?" maxlength="30"></div>
-  <div class="card">
-    <h2>Quando sei libero?</h2><p class="mut">Tocca l’ora a cui puoi trovarti (es. 19 = alle 19:00).</p>
-    <div id="slots"></div>
-    <div class="row"><button class="p" id="gsend">Invia disponibilità</button></div>
-    <p id="done" class="mut" hidden>✅ Inviato! Puoi ripetere l’invio con lo stesso nome per aggiornare la risposta. <a id="seer" href="#">Vedi le risposte di tutti</a></p>
+  <div class="card"><h2 id="gt"></h2><p class="mut" id="gn"></p></div>
+  <div id="wiz">
+    <div class="steps" id="steps"><i></i><i></i><i></i></div>
+    <div class="card" id="s1">
+      <h2>1 · Come ti chiami?</h2>
+      <input id="gname" placeholder="Il tuo nome" maxlength="30">
+    </div>
+    <div class="card" id="s2" hidden>
+      <h2>2 · Scegli i giorni</h2>
+      <p class="mut">Le barre mostrano quando l’organizzatore è libero (verde = libero). Tocca i giorni che ti vanno bene.</p>
+      <div id="days"></div>
+    </div>
+    <div class="card" id="s3" hidden>
+      <h2>3 · A che ora ci vediamo?</h2>
+      <p class="mut">Tocca l’ora a cui puoi trovarti (es. 19 = alle 19:00).</p>
+      <div id="slots"></div>
+    </div>
+    <div class="row"><button id="back" hidden>Indietro</button><button class="p" id="next">Avanti</button></div>
   </div>
-  <p class="mut" style="text-align:center"><a href="index.html" style="color:var(--acc)">Organizza il tuo evento</a></p>
+  <div class="card" id="done" hidden><h2>Fatto, grazie!</h2><p class="mut">La tua disponibilità è stata inviata. Per cambiarla riapri il link e usa lo stesso nome.</p><a id="seer" href="#">Vedi le risposte di tutti</a></div>
+  <p class="mut" style="text-align:center"><a href="index.html">Organizza il tuo evento</a></p>
 </section>
 </main>
 <div id="toast"></div>
@@ -115,32 +127,56 @@ $("#cpr").onclick=()=>copy(rUrl);
 $("#opr").onclick=()=>window.open(rUrl,"_blank");
 $("#wal").onclick=()=>wa("Ciao! Sto organizzando «"+(S.t.trim()||"un’uscita")+"»"+(S.tm?" alle "+S.tm:"")+" 🍻 Dimmi quando ti va bene da qui:\n"+gUrl);
 
-/* ===== Vista invitato ===== */
+/* ===== Vista invitato: procedura a 3 passaggi ===== */
 async function initGuest(id){
   $("#org").hidden=true;$("#guest").hidden=false;
   let ev;
   try{ev=(await api("events?id=eq."+encodeURIComponent(id)+"&select=*"))[0]}catch(e){}
-  if(!ev){$("#gt").textContent="Evento non trovato 😕";$("#gname").parentNode.hidden=true;$("#slots").parentNode.hidden=true;return}
-  $("#gt").textContent=ev.title;$("#gn").textContent=[ev.note,ev.time_hint&&"Ritrovo alle "+ev.time_hint.slice(0,5)].filter(Boolean).join(" · ");
-  const w=fromIso(ev.week),free=up(ev.mask),sel=new Set();let h="";
-  for(let d=0;d<7;d++){let c="";
-    for(let r=0;r<NH;r++){const i=d*NH+r;if(free[i]&&!isPast(w,d,r))c+=`<button class="chip" data-i="${i}">${H0+r}</button>`}
-    if(c)h+=`<div class="day"><h3>${dayLab(w,d)}</h3><div class="chips">${c}</div></div>`}
-  $("#slots").innerHTML=h||'<p class="mut">Nessuno slot disponibile: chiedi all’organizzatore un nuovo link.</p>';
-  $("#slots").onclick=e=>{const b=e.target.closest(".chip");if(!b)return;const i=+b.dataset.i;sel.has(i)?sel.delete(i):sel.add(i);b.classList.toggle("on",sel.has(i))};
+  if(!ev){$("#gt").textContent="Evento non trovato";$("#wiz").hidden=true;return}
+  $("#gt").textContent=ev.title;
+  $("#gn").textContent=[ev.note,ev.time_hint&&"Ritrovo alle "+ev.time_hint.slice(0,5)].filter(Boolean).join(" · ");
+  const w=fromIso(ev.week),free=up(ev.mask),days=new Set(),sel=new Set(),ok=(d,r)=>free[d*NH+r]&&!isPast(w,d,r);
+  let step=1;
   try{$("#gname").value=localStorage.getItem("uscite-nome")||""}catch(e){}
-  $("#seer").href=pageUrl("risultati.html","e="+id);
-  $("#gsend").onclick=async()=>{
+
+  // Passo 2: grafico della settimana, una barra di 24 ore per ogni giorno
+  let h='<div class="axis"><span></span><span><i>0</i><i>6</i><i>12</i><i>18</i><i>24</i></span><span></span></div>';
+  for(let d=0;d<7;d++){let n=0,strip="";
+    for(let r=0;r<NH;r++){const f=ok(d,r);if(f)n++;strip+=`<b class="${f?"f":""}"></b>`}
+    h+=`<button class="dayrow" data-d="${d}"${n?"":" disabled"}><span class="dn">${dayLab(w,d)}</span><span class="strip">${strip}</span><span class="cnt">${n?n+" h":"–"}</span></button>`}
+  $("#days").innerHTML=h;
+  $("#days").onclick=e=>{const b=e.target.closest(".dayrow");if(!b||b.disabled)return;const d=+b.dataset.d;days.has(d)?days.delete(d):days.add(d);b.classList.toggle("on",days.has(d))};
+
+  // Passo 3: ore libere solo dei giorni scelti
+  function buildSlots(){
+    [...sel].forEach(i=>{if(!days.has(Math.floor(i/NH)))sel.delete(i)});
+    let h="";
+    [...days].sort().forEach(d=>{let c="";
+      for(let r=0;r<NH;r++)if(ok(d,r)){const i=d*NH+r;c+=`<button class="chip${sel.has(i)?" on":""}" data-i="${i}">${H0+r}</button>`}
+      h+=`<div class="day"><h3>${dayLab(w,d)}</h3><div class="chips">${c}</div></div>`});
+    $("#slots").innerHTML=h;
+  }
+  $("#slots").onclick=e=>{const b=e.target.closest(".chip");if(!b)return;const i=+b.dataset.i;sel.has(i)?sel.delete(i):sel.add(i);b.classList.toggle("on",sel.has(i))};
+
+  const show=()=>{[1,2,3].forEach(n=>$("#s"+n).hidden=n!==step);
+    document.querySelectorAll("#steps i").forEach((x,i)=>x.classList.toggle("on",i<step));
+    $("#back").hidden=step===1;$("#next").textContent=step===3?"Invia disponibilità":"Avanti";window.scrollTo(0,0)};
+  $("#back").onclick=()=>{step--;show()};
+  $("#next").onclick=async()=>{
     const name=$("#gname").value.trim();
-    if(!name)return toast("Inserisci il tuo nome");
-    if(!sel.size)return toast("Scegli almeno uno slot");
-    const m=Array(N).fill(0);sel.forEach(i=>m[i]=1);
-    $("#gsend").disabled=true;
-    try{await api("responses?on_conflict=event_id,name",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({event_id:id,name,mask:toHex(m)})});
-      try{localStorage.setItem("uscite-nome",name)}catch(e){}
-      $("#done").hidden=false;toast("Disponibilità inviata!")}
-    catch(e){toast("Errore di invio, riprova")}
-    $("#gsend").disabled=false;
+    if(step===1){if(!name)return toast("Inserisci il tuo nome");step=2}
+    else if(step===2){if(!days.size)return toast("Scegli almeno un giorno");buildSlots();step=3}
+    else{
+      if(!sel.size)return toast("Scegli almeno un orario");
+      const m=Array(N).fill(0);sel.forEach(i=>m[i]=1);
+      $("#next").disabled=true;
+      try{await api("responses?on_conflict=event_id,name",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({event_id:id,name,mask:toHex(m)})});
+        try{localStorage.setItem("uscite-nome",name)}catch(e){}
+        $("#seer").href=pageUrl("risultati.html","e="+id);$("#wiz").hidden=true;$("#done").hidden=false;window.scrollTo(0,0)}
+      catch(e){toast("Errore di invio, riprova")}
+      $("#next").disabled=false;return;
+    }
+    show();
   };
 }
 
