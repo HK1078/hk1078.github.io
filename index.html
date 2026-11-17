@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Usciamo? – Organizza con gli amici</title>
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script><script src="common.js"></script>
+</head>
+<body>
+<main>
+<header><h1>🍻 Usciamo?</h1><button id="theme" aria-label="Cambia tema">🌓</button></header>
+
+<!-- ===== VISTA ORGANIZZATORE ===== -->
+<section id="org">
+  <div class="card">
+    <h2>Evento</h2>
+    <label for="t">Titolo</label><input id="t" placeholder="es. Cena fuori" maxlength="60">
+    <label for="n">Note o luogo (facoltativo)</label><input id="n" placeholder="es. Pizzeria da Gino, zona Navigli" maxlength="100">
+    <label for="tm">Orario preciso di ritrovo (facoltativo)</label><input id="tm" type="time">
+  </div>
+  <div class="card">
+    <h2>I miei impegni</h2>
+    <p class="mut">Tocca o trascina sulle celle per alternare. Tocca un giorno per sceglierlo prima di copiarlo.</p>
+    <div class="legend"><span><i class="dot" style="background:var(--free)"></i>Libero</span><span><i class="dot" style="background:var(--busy)"></i>Impegnato</span><span><i class="dot" style="background:var(--today)"></i>Oggi</span></div>
+    <div class="row" style="margin-top:0"><button id="w0">Questa settimana</button><button id="w1">Prossima settimana</button></div>
+    <div class="grid edit" id="grid"></div>
+    <div class="row">
+      <button id="allF">Segna tutto come libero</button>
+      <button id="allB">Segna tutto come impegnato</button>
+      <button id="cp">Copia questo giorno sugli altri</button>
+    </div>
+  </div>
+  <div class="card">
+    <button class="p" id="gen" style="width:100%">Genera link</button>
+    <div id="out" hidden>
+      <label>Link per gli amici</label><input id="lnk" class="link" readonly>
+      <div class="row"><button id="cpl">Copia link</button><button class="g" id="wal">Condividi su WhatsApp</button></div>
+      <label>Link per vedere i risultati</label><input id="rlnk" class="link" readonly>
+      <div class="row"><button id="cpr">Copia</button><button class="p" id="opr">Apri risultati</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== VISTA INVITATO (index.html?e=ID) ===== -->
+<section id="guest" hidden>
+  <div class="card"><h2 id="gt"></h2><p class="mut" id="gn"></p>
+    <label for="gname">Il tuo nome</label><input id="gname" placeholder="Come ti chiami?" maxlength="30"></div>
+  <div class="card">
+    <h2>Quando sei libero?</h2><p class="mut">Tocca l’ora a cui puoi trovarti (es. 19 = alle 19:00).</p>
+    <div id="slots"></div>
+    <div class="row"><button class="p" id="gsend">Invia disponibilità</button></div>
+    <p id="done" class="mut" hidden>✅ Inviato! Puoi ripetere l’invio con lo stesso nome per aggiornare la risposta. <a id="seer" href="#">Vedi le risposte di tutti</a></p>
+  </div>
+  <p class="mut" style="text-align:center"><a href="index.html" style="color:var(--acc)">Organizza il tuo evento</a></p>
+</section>
+</main>
+<div id="toast"></div>
+
+<script>
+/* ===== Stato organizzatore (bozza salvata nel browser) ===== */
+let S={t:"",n:"",off:0,sel:0,tm:"",m:Array.from({length:N},(_,i)=>i%NH>=8?1:0)};
+try{const b=JSON.parse(localStorage.getItem("uscite-bozza")||"null");if(b&&b.m&&b.m.length===N)S=Object.assign(S,b)}catch(e){}
+const save=()=>{try{localStorage.setItem("uscite-bozza",JSON.stringify(S))}catch(e){}};
+const W=()=>monday(S.off);
+
+function buildGrid(){
+  const w=W(),td=iso(new Date());let h="<div></div>";
+  for(let d=0;d<7;d++){const x=slotStart(w,d,0);h+=`<div class="dh${iso(x)===td?" today":""}${S.sel===d?" sel":""}" data-d="${d}">${GG[d]}<b>${x.getDate()}</b></div>`}
+  for(let r=0;r<NH;r++){h+=`<div class="hl">${H0+r}</div>`;
+    for(let d=0;d<7;d++){const i=d*NH+r;h+=`<div class="c${S.m[i]?"":" busy"}${isPast(w,d,r)?" past":""}" data-i="${i}"></div>`}}
+  $("#grid").innerHTML=h;
+}
+const paintCells=()=>document.querySelectorAll(".c").forEach(c=>c.classList.toggle("busy",!S.m[+c.dataset.i]));
+const markWeek=()=>{$("#w0").classList.toggle("p",S.off===0);$("#w1").classList.toggle("p",S.off===1)};
+
+/* Click o trascinamento sulle celle */
+let pv=null;
+const cellAt=e=>{const el=document.elementFromPoint(e.clientX,e.clientY);return el&&el.closest(".c:not(.past)")};
+function paint(c){if(!c)return;const i=+c.dataset.i;if(S.m[i]!==pv){S.m[i]=pv;c.classList.toggle("busy",!pv)}}
+$("#grid").addEventListener("pointerdown",e=>{
+  const dh=e.target.closest(".dh");
+  if(dh){S.sel=+dh.dataset.d;document.querySelectorAll(".dh").forEach(x=>x.classList.toggle("sel",+x.dataset.d===S.sel));save();return}
+  const c=cellAt(e);if(c){pv=1-S.m[+c.dataset.i];paint(c)}
+});
+$("#grid").addEventListener("pointermove",e=>{if(pv!==null)paint(cellAt(e))});
+addEventListener("pointerup",()=>{if(pv!==null){pv=null;save()}});
+
+/* Pulsanti rapidi */
+const setAll=v=>{const w=W();for(let d=0;d<7;d++)for(let h=0;h<NH;h++)if(!isPast(w,d,h))S.m[d*NH+h]=v;paintCells();save()};
+$("#allF").onclick=()=>setAll(1);
+$("#allB").onclick=()=>setAll(0);
+$("#cp").onclick=()=>{const w=W();for(let d=0;d<7;d++)if(d!==S.sel)for(let h=0;h<NH;h++)if(!isPast(w,d,h))S.m[d*NH+h]=S.m[S.sel*NH+h];paintCells();save();toast("Giorno copiato")};
+[0,1].forEach(o=>$("#w"+o).onclick=()=>{S.off=o;save();buildGrid();markWeek()});
+$("#t").value=S.t;$("#n").value=S.n;$("#tm").value=S.tm||"";
+$("#tm").oninput=e=>{S.tm=e.target.value;save()};
+$("#t").oninput=e=>{S.t=e.target.value;save()};
+$("#n").oninput=e=>{S.n=e.target.value;save()};
+
+/* Pubblica l'evento nel database e genera i link */
+let gUrl="",rUrl="";
+$("#gen").onclick=async()=>{
+  const w=W(),m=S.m.map((v,i)=>v&&!isPast(w,Math.floor(i/NH),i%NH)?1:0);
+  if(!m.includes(1))return toast("Nessuno slot libero da condividere");
+  const id=rid(),title=S.t.trim()||"Uscita tra amici";
+  $("#gen").disabled=true;
+  try{await api("events",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({id,title,note:S.n.trim(),time_hint:S.tm||null,week:iso(w),mask:toHex(m)})})}
+  catch(e){$("#gen").disabled=false;return toast("Errore di salvataggio: controlla config.js")}
+  $("#gen").disabled=false;
+  gUrl=pageUrl("index.html","e="+id);rUrl=pageUrl("risultati.html","e="+id);
+  $("#lnk").value=gUrl;$("#rlnk").value=rUrl;$("#out").hidden=false;
+};
+$("#cpl").onclick=()=>copy(gUrl);
+$("#cpr").onclick=()=>copy(rUrl);
+$("#opr").onclick=()=>window.open(rUrl,"_blank");
+$("#wal").onclick=()=>wa("Ciao! Sto organizzando «"+(S.t.trim()||"un’uscita")+"»"+(S.tm?" alle "+S.tm:"")+" 🍻 Dimmi quando ti va bene da qui:\n"+gUrl);
+
+/* ===== Vista invitato ===== */
+async function initGuest(id){
+  $("#org").hidden=true;$("#guest").hidden=false;
+  let ev;
+  try{ev=(await api("events?id=eq."+encodeURIComponent(id)+"&select=*"))[0]}catch(e){}
+  if(!ev){$("#gt").textContent="Evento non trovato 😕";$("#gname").parentNode.hidden=true;$("#slots").parentNode.hidden=true;return}
+  $("#gt").textContent=ev.title;$("#gn").textContent=[ev.note,ev.time_hint&&"Ritrovo alle "+ev.time_hint.slice(0,5)].filter(Boolean).join(" · ");
+  const w=fromIso(ev.week),free=up(ev.mask),sel=new Set();let h="";
+  for(let d=0;d<7;d++){let c="";
+    for(let r=0;r<NH;r++){const i=d*NH+r;if(free[i]&&!isPast(w,d,r))c+=`<button class="chip" data-i="${i}">${H0+r}</button>`}
+    if(c)h+=`<div class="day"><h3>${dayLab(w,d)}</h3><div class="chips">${c}</div></div>`}
+  $("#slots").innerHTML=h||'<p class="mut">Nessuno slot disponibile: chiedi all’organizzatore un nuovo link.</p>';
+  $("#slots").onclick=e=>{const b=e.target.closest(".chip");if(!b)return;const i=+b.dataset.i;sel.has(i)?sel.delete(i):sel.add(i);b.classList.toggle("on",sel.has(i))};
+  try{$("#gname").value=localStorage.getItem("uscite-nome")||""}catch(e){}
+  $("#seer").href=pageUrl("risultati.html","e="+id);
+  $("#gsend").onclick=async()=>{
+    const name=$("#gname").value.trim();
+    if(!name)return toast("Inserisci il tuo nome");
+    if(!sel.size)return toast("Scegli almeno uno slot");
+    const m=Array(N).fill(0);sel.forEach(i=>m[i]=1);
+    $("#gsend").disabled=true;
+    try{await api("responses?on_conflict=event_id,name",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({event_id:id,name,mask:toHex(m)})});
+      try{localStorage.setItem("uscite-nome",name)}catch(e){}
+      $("#done").hidden=false;toast("Disponibilità inviata!")}
+    catch(e){toast("Errore di invio, riprova")}
+    $("#gsend").disabled=false;
+  };
+}
+
+/* ===== Avvio: con ?e=ID si apre la vista invitato ===== */
+const eid=param("e");
+if(eid)initGuest(eid);else{buildGrid();markWeek()}
+</script>
+</body>
+</html>
